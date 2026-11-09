@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live ATC Audio</title>
+<style>
+  :root { --blue:#1f5ca8; --navy:#0b2e5c; --line:#c9d3e0; --soft:#eef3f9; --sel:#dbe8f8; --text:#1b1b1b; --muted:#5a6472; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#f4f6f9; color:var(--text); font:14px/1.45 Arial, Helvetica, system-ui, sans-serif; }
+  a { color:#0645ad; }
+  .muted { color:var(--muted); font-size:12px; }
+  .wrap { max-width:1150px; margin:0 auto; padding:0 12px 12px; }
+
+  .banner { background:var(--navy); color:#fff; border-bottom:4px solid var(--blue); }
+  .banner .wrap { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 18px; padding-top:10px; padding-bottom:10px; }
+  .banner h1 { margin:0; font-size:20px; }
+  .banner .sub { color:#c8d6ea; font-size:13px; }
+  .banner .meta { margin-left:auto; font-size:13px; color:#c8d6ea; }
+  .banner .meta b { color:#fff; }
+
+  .grid { display:grid; grid-template-columns:1fr 360px; grid-template-areas:"player side" "list side"; gap:14px; margin-top:14px; align-items:start; }
+  .panel { background:#fff; border:1px solid var(--line); }
+  .panel > h2 { margin:0; background:var(--blue); color:#fff; font-size:14px; padding:5px 10px; }
+  .panel > .body { padding:10px; }
+  .side { grid-area:side; display:flex; flex-direction:column; gap:14px; }
+  .list { grid-area:list; }
+
+  /* player */
+  .player { grid-area:player; }
+  .player .body { display:flex; gap:18px; align-items:center; }
+  .big { flex:none; width:150px; height:72px; font:bold 22px Arial, Helvetica, sans-serif; color:#fff; background:var(--blue);
+    border:1px solid var(--navy); border-radius:4px; cursor:pointer; }
+  .big:hover { background:var(--navy); }
+  .big:disabled { background:#9aa7b8; border-color:#9aa7b8; cursor:default; }
+  .np-icao { font-size:26px; font-weight:bold; color:var(--navy); }
+  .np-name { color:var(--muted); }
+  .np-feed { font-size:16px; margin-top:4px; }
+  .state { display:inline-block; margin-top:6px; font-weight:bold; }
+  .state.idle { color:var(--muted); font-weight:normal; }
+  .state.live { color:#1e7b34; }
+  .state.live::before { content:""; display:inline-block; width:9px; height:9px; border-radius:50%; background:#1e7b34; margin-right:6px; animation:pulse 1.6s infinite; }
+  .state.conn { color:#a35c00; }
+  .state.err { color:#b3261e; }
+  @keyframes pulse { 50% { opacity:.25; } }
+  .msg { margin-top:4px; min-height:1.3em; font-size:13px; color:var(--muted); }
+  .msg.err { color:#b3261e; }
+  .msg button { margin-left:6px; }
+
+  /* tables */
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; background:var(--soft); color:var(--navy); font-weight:bold; border:1px solid var(--line); padding:4px 6px; }
+  td { padding:4px 6px; border:1px solid var(--line); white-space:nowrap; }
+  td.r, th.r { text-align:right; }
+  td.ell { overflow:hidden; text-overflow:ellipsis; max-width:0; width:100%; }
+  td.approx { color:var(--muted); }
+  tbody tr:nth-child(even) td { background:#f9fbfd; }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover td { background:#f0f5fc; }
+  tr.sel td, tr.sel:nth-child(even) td { background:var(--sel); font-weight:bold; }
+  tr.bad td { color:#b3261e; text-decoration:line-through; }
+  .scroll { max-height:440px; overflow:auto; }
+
+  button { font:inherit; font-size:13px; color:var(--navy); background:#fff; border:1px solid #8fa3bf; border-radius:3px; padding:4px 10px; cursor:pointer; }
+  button:hover { background:var(--soft); }
+  .search { display:flex; gap:6px; margin-bottom:8px; }
+  .search input { flex:1; min-width:0; font:inherit; border:1px solid #8fa3bf; border-radius:3px; padding:5px 8px; }
+
+  .raw { font:12px/1.4 Menlo, Consolas, monospace; background:var(--soft); border:1px solid var(--line); padding:6px 8px; margin-top:4px; word-break:break-word; }
+  details { margin-top:8px; } summary { cursor:pointer; }
+  .kv { display:grid; grid-template-columns:90px 1fr; gap:3px 10px; }
+  .kv > span:nth-child(odd) { color:var(--muted); }
+  .cat { display:inline-block; font-weight:bold; color:#fff; padding:1px 8px; border-radius:3px; }
+  .VFR { background:#1e7b34; } .MVFR { background:#1f5ca8; } .IFR { background:#b3261e; } .LIFR { background:#a0228a; }
+  .freqs { margin-top:8px; font-size:12px; color:var(--muted); }
+  .freqs b { color:var(--text); font-weight:normal; }
+  footer { margin:16px 0 4px; color:var(--muted); font-size:12px; text-align:center; }
+
+  @media (max-width:820px) {
+    .grid { grid-template-columns:1fr; grid-template-areas:"player" "side" "list"; }
+    .player .body { flex-direction:column; text-align:center; }
+    .big { width:100%; max-width:320px; }
+    .banner .meta { margin-left:0; }
+    .hide-sm { display:none; }
+    .scroll { max-height:none; }
+  }
+</style>
+</head>
+<body>
+<div class="banner">
+  <div class="wrap">
+    <h1>Live ATC Audio</h1>
+    <span class="sub">Air traffic control radio, nearest airports first</span>
+    <span class="meta">Your location: <b id="pos">--</b> <span id="posSrc">(locating)</span> &middot; <b id="clock">--:--</b></span>
+  </div>
+</div>
+<div class="wrap">
+  <div class="grid">
+    <section class="panel player">
+      <h2>Now tuned</h2>
+      <div class="body">
+        <button class="big" id="big" disabled>&#9654; Play</button>
+        <div>
+          <div class="np-icao" id="npIcao">----</div>
+          <div class="np-name" id="npName">Pick an airport below</div>
+          <div class="np-feed" id="npFeed">&nbsp;</div>
+          <div><span class="state idle" id="state">Stopped</span> <span class="muted" id="timer"></span></div>
+          <div class="msg" id="msg"></div>
+        </div>
+      </div>
+      <audio id="audio" preload="none"></audio>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>Feeds at this airport</h2>
+        <div class="body">
+          <table>
+            <thead><tr><th>Type</th><th>Feed</th><th class="r">MHz</th></tr></thead>
+            <tbody id="feeds"></tbody>
+          </table>
+          <div class="freqs" id="freqs"></div>
+          <div class="muted" style="margin-top:4px">~ = the airport's published frequency; this feed may differ.</div>
+        </div>
+      </section>
+      <section class="panel">
+        <h2>Current weather (METAR)</h2>
+        <div class="body" id="metar">--</div>
+      </section>
+    </aside>
+
+    <section class="panel list">
+      <h2>Nearest airports</h2>
+      <div class="body">
+        <div class="search">
+          <input id="q" placeholder="Search ICAO or city, e.g. KSFO" maxlength="20" autocomplete="off" spellcheck="false">
+          <button id="locate" title="Use device location">Use my location</button>
+        </div>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>ICAO</th><th>Airport</th><th class="r">Dist (nm)</th><th class="r hide-sm">Bearing</th><th class="r">Feeds</th></tr></thead>
+            <tbody id="list"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+  <footer>Audio from <a href="https://www.liveatc.net" target="_blank" rel="noopener">LiveATC.net</a> &middot; Weather from NOAA / National Weather Service &middot; Not for operational use</footer>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Data: [icao, name, city, lat, lon, feeds, published freqs]
+// feeds: [liveatc mount, type, name, MHz]  ("~" = airport freq, not feed-specific)
+// Mounts from LiveATC's feed index (status "up", Oct 2026); freqs from OurAirports.
+// ---------------------------------------------------------------------------
+const AIRPORTS = [
+  ["KATL", "Hartsfield Jackson Atlanta Intl", "Atlanta", 33.6367, -84.4281, [["katl_twr", "TWR", "Tower", "~119.1"], ["katl_twr_1028", "TWR", "Tower (Rwy 10/28)", "~119.1"], ["katl_gnd", "GND", "Ground", "~121.65"], ["katl_gnd_1028", "GND", "Ground (Rwy 10/28)", "~121.65"], ["katl_app_fin_a", "APP", "Final Approach 28/10", "~127.9/128"], ["katl_app_fin_v", "APP", "Final Approach 26R/8L", "~127.9/128"], ["katl_dep_n", "DEP", "Departure (North)", "~121.225/125.65"]], "APP 127.9 128 | ATIS 119.65 | DEL 118.1 | DEP 121.225 125.65 133.475 | GND 121.65 | TWR 119.1"],
+  ["KLAX", "Los Angeles Intl", "Los Angeles", 33.9425, -118.408, [["klax3", "TWR", "Tower (North) #1", "~119.8"], ["klax_twr", "TWR", "Tower (North/South) #1", "~119.8"], ["klax1", "GND", "Ground (North)", "~121.65"], ["klax5", "GND", "Ground (South)", "~121.65"], ["klax7", "APP", "Dep/West App", "~124.3"], ["kpoc2_klax_app_east_feeder", "APP", "App (East Feeder)", "~124.3"], ["ksmo2_dep_124300", "DEP", "SOCAL Dep (Manhattan Sector)", "124.3"]], "APP 124.3 | ATIS 133.8 | DEL 121.4 | DEP 124.3 | GND 121.65 | TWR 119.8"],
+  ["KORD", "Chicago O'Hare Intl", "Chicago", 41.9786, -87.9048, [["kord1n2_twr_n", "TWR", "Tower (North) #1", "~126.9"], ["kord1n2_twr_ctr1", "TWR", "Tower (Center 9C-27C)", "~126.9"], ["kord1n2_gnd_in", "GND", "Ground (Inbound) #1", "~121.675"], ["kord1n2_gnd_meter", "GND", "Ground/Metering", "~121.675"], ["kord1n2_app_133625", "APP", "Chicago Approach (10R/28C)", "133.625"], ["kord1n2_app_125700", "APP", "Chicago Approach (NE Feeder)", "125.7"], ["kord1s1_dep_126625", "DEP", "Dep (126.625)", "126.625"]], "APP 119 | ATIS 135.4 | DEL 121.6 | DEP 125 | GND 121.675 | TWR 126.9"],
+  ["KDFW", "Dallas Fort Worth Intl", "Dallas-Fort Worth", 32.8968, -97.038, [["kdfw1_twr1_e", "TWR", "Tower (East)", "~124.15"], ["kdfw1_twr1_w", "TWR", "Tower (West)", "~124.15"], ["kdfw1_gnd_w", "GND", "Ground (West)", "~121.65"], ["kdfw1_gnd_e_1218", "GND", "Ground (East/121.8)", "121.8"], ["kdfw1_app_fe1", "APP", "Lone Star Approach (Feeder East)", "~119.875"], ["kafw1_dfw_app_119875", "APP", "Lone Star Approach (Feeder West)", "119.875"], ["kdfw1_dep_w", "DEP", "Lone Star Departure (West)", "~118.55"]], "APP 119.875 | ATIS 123.775 | DEL 128.25 | DEP 118.55 | GND 121.65 | TWR 124.15"],
+  ["KDEN", "Denver Intl", "Denver", 39.86, -104.6738, [["kden1_twr_west1", "TWR", "Tower (Rwy 16/34)", "~124.3"], ["kden1_twr_east", "TWR", "Tower East 17R/35L", "~124.3"], ["kden1_gnd_east1", "GND", "Ground (East 1)", "~121.85"], ["kden1_gnd_east2", "GND", "Ground (East 2)", "~121.85"], ["kden1_app_n", "APP", "Approach (North)", "~119.3"], ["kden1_app_s", "APP", "Approach (South)", "~119.3"], ["kden1_dep_e", "DEP", "Departure (East)", "~126.1"]], "APP 119.3 | ATIS 125.6 | DEL 118.75 | DEP 126.1 | GND 121.85 | TWR 124.3"],
+  ["KJFK", "John F. Kennedy Intl", "New York", 40.6394, -73.7793, [["kjfk_twr", "TWR", "Tower", "~119.1/123.9"], ["kjfk9_s", "TWR", "Gnd/Twr", "~119.1/123.9"], ["kjfk9_gnd", "GND", "Ground #1", "~121.65/121.9"], ["kjfk_gnd", "GND", "Ground #2", "~121.65/121.9"], ["khpn_app_lib_n", "APP", "NY Dep (Liberty North) #1", "~125.7/127.4"], ["kjfk9_app_camrn", "APP", "NY Approach (CAMRN/JFK) #1", "~125.7/127.4"], ["kjfk_dep", "DEP", "NY Departure (JFK)", "~135.9"]], "APP 125.7 127.4 132.4 | DEL 135.05 | DEP 135.9 | GND 121.65 121.9 | TWR 119.1 123.9"],
+  ["KSFO", "San Francisco Intl", "San Francisco", 37.6198, -122.3748, [["ksfo_twr", "TWR", "Tower", "~120.5"], ["ksfo_gnd_twr", "TWR", "Ground/Tower", "~120.5"], ["ksfo_gnd", "GND", "Ground", "~121.8"], ["ksfo_app2_l", "APP", "NORCAL App 28L/R", "~128.325/133.95"], ["ksfo_app2_r", "APP", "NORCAL BSR2/MOD2 Arrivals", "~128.325/133.95"], ["ksfo_dep2", "DEP", "Dep 135.1", "135.1"], ["ksfo_dep1", "DEP", "Dep 120.9/127.0", "120.9"]], "APP 128.325 133.95 134.5 | DEL 118.2 | DEP 120.9 135.1 | GND 121.8 | TWR 120.5"],
+  ["KSEA", "Seattle-Tacoma Intl", "Seattle", 47.4479, -122.3103, [["ksea3_twr_west", "TWR", "Tower (16R/34L)", "~119.9"], ["ksea3_twr_east", "TWR", "Tower (16L/34R,16C/34C)", "~119.9"], ["ksea3_gnd", "GND", "Ground", "~121.7"], ["ksea3_app_se", "APP", "Approach (SE)", "~119.2"], ["ksea3_app_e", "APP", "Approach (East)", "~119.2"], ["ksea3_dep_east", "DEP", "Departure (East)", "~119.2"], ["ksea3_dep_west", "DEP", "Departure (West)", "~119.2"]], "A/D 119.2 | DEL 128 | GND 121.7 | TWR 119.9"],
+  ["KLAS", "Harry Reid Intl", "Las Vegas", 36.0834, -115.1518, [["klas4_twr", "TWR", "Tower (Both)", "~119.9"], ["klas4_twr_0119", "TWR", "Tower (Rwys 01/19)", "~119.9"], ["klas4_gnd_e", "GND", "Ground (East)", "~121.1"], ["klas4_gnd_w", "GND", "Ground (West)", "~121.1"], ["klas4_app_ne", "APP", "Approach (NE)", "~125.025"], ["klas4_app_nw", "APP", "Approach (NW)", "~125.025"], ["klas5_dep_0108", "DEP", "Departure (Rwys 01/08)", "~125.02"]], "APP 125.025 | ATIS 132.4 | DEL 118 | DEP 125.02 | GND 121.1 | TWR 119.9"],
+  ["KMCO", "Orlando Intl", "Orlando", 28.4294, -81.309, [["korl_kmco_twr_west", "TWR", "Tower (West) #2", "~118.45"], ["korl_kmco_app_124800", "APP", "App/Dep (124.8)", "124.8"], ["korl_kmco_app_120150", "APP", "App/Dep (120.15)", "120.15"]], "A/D 119.4 | ATIS 121.25 | DEL 134.7 | GND 121.8 | TWR 118.45"],
+  ["KEWR", "Newark Liberty Intl", "Newark", 40.6894, -74.1705, [["kewr_twr", "TWR", "Tower #1", "~118.3"], ["kewr_twr_tca", "TWR", "Tower (TCA)", "~118.3"], ["kewr_gnd_pri", "GND", "Ground", "~121.8"], ["kewr_klga_app_empyr", "APP", "New York Approach (EMPYR)", "~127.6"], ["kewr_app_final", "APP", "Newark Approach (EWR Final)", "~127.6"], ["kewr_dep", "DEP", "Newark Departure #1", "~119.2"], ["kewr_dep_lib_w", "DEP", "Newark Departure (Liberty West)", "~119.2"]], "APP 127.6 | DEL 118.85 | DEP 119.2 | GND 121.8 | TWR 118.3"],
+  ["KCLT", "Charlotte Douglas Intl", "Charlotte", 35.214, -80.9431, [["kclt7_twr_118100", "TWR", "Tower (Rwy 18L/36R)", "118.1"], ["kclt4_arr", "APP", "Approach (Arrival)", "~120.05"], ["kclt7_dep_120500", "APP", "App/Dep (High North)", "120.5"], ["kclt7_dep_119000", "DEP", "Departure", "119"]], "A/D 120.05 | ATIS 121.15 | DEL 127.15 | GND 121.8 | TWR 118.1"],
+  ["KPHX", "Phoenix Sky Harbor Intl", "Phoenix", 33.4353, -112.0059, [["kphx_twr_n", "TWR", "Tower (North)", "~118.7/120.9"], ["kphx_twr_s", "TWR", "Tower (South)", "~118.7/120.9"], ["kphx_gnd_s", "GND", "Ground (South)", "~119.75/132.55"], ["kphx_gnd_n1", "GND", "Ground (North/Pri)", "~119.75/132.55"], ["kphx_app_s", "APP", "Approach (N/S)/S Final", "~119.2/120.7"], ["kphx_app_nf", "APP", "Approach (North Final)", "~119.2/120.7"], ["kphx_dep", "DEP", "Departure", "~119.2/120.7"]], "A/D 119.2 120.7 123.7 | ATIS 127.575 | DEL 118.1 | GND 119.75 132.55 | TWR 118.7 120.9"],
+  ["KIAH", "George Bush Intercontinental", "Houston", 29.9844, -95.3414, [["kiah3_twr_9_27", "TWR", "Twr (Rwy 9/27)", "~120.725"], ["kiah2_twr_8l26r", "TWR", "Twr (Rwy 8L/26R)", "~120.725"], ["kiah2_gnd_s", "GND", "Gnd (South/Rwy 9/27)", "~118.575"], ["kiah2_gnd_n", "GND", "Gnd (North/Rwys 8/26LR)", "~118.575"], ["kiah2_app_120050", "APP", "Houston Approach (NE)", "120.05"], ["kiah2_app_124350", "APP", "Houston Approach (NW)", "124.35"], ["kiah2_dep_132250", "DEP", "Houston Departure (NE High)", "132.25"]], "APP 120.05 | ATIS 124.05 | DEL 128.1 | DEP 119.7 | GND 118.575 | TWR 120.725"],
+  ["KMIA", "Miami Intl", "Miami", 25.796, -80.2898, [["kmia3_twr_1183", "TWR", "Tower (North)", "118.3"], ["kmia3_twr_1239", "TWR", "Tower (South)", "123.9"], ["kmia3_gnd2", "GND", "Ground (Rwys 9/27 & 30)", "~121.8"], ["kmia3_gnd", "GND", "Ground (8L/8R/12/26L/26R)", "~121.8"], ["kmia3_app_133775", "APP", "Approach (KFLL)", "133.775"], ["kmia3_app_11945", "APP", "Departure (North)", "119.45"], ["kmia3_dep_1255", "DEP", "Departure (South)", "125.5"]], "APP 120.5 | ATIS 119.15 | DEL 120.35 | DEP 119.45 | GND 121.8 | TWR 118.3"],
+  ["KBOS", "Boston Logan Intl", "Boston", 42.362, -71.0079, [["kbos1_twr", "TWR", "Tower", "~128.8/132.225"], ["kbos1_twr_132225", "TWR", "Tower (East)", "132.225"], ["kbos1_gnd_121900", "GND", "Ground", "121.9"], ["kbos1_app_south", "APP", "Boston App/Dep (South)", "~118.25/120.6"], ["kbos1_app_north", "APP", "Boston App/Dep (North/High)", "~118.25/120.6"], ["kbos1_dep_133000", "DEP", "Boston Departure (Initial)", "133"], ["kbos1_del", "DEL", "Clearance Delivery", "~121.65"]], "APP 118.25 120.6 127.2 | ATIS 135 | DEL 121.65 | DEP 133 | GND 121.75 121.9 | TWR 128.8 132.225"],
+  ["KMSP", "Minneapolis-Saint Paul Intl", "Minneapolis", 44.8801, -93.2217, [["kmsp1_twr_1735", "TWR", "Tower (Rwy 17/35)", "~123.675"], ["kmsp1_twr_12l", "TWR", "Tower (Rwy 12L/30R)", "~123.675"], ["kmsp1_gnd_w", "GND", "Ground (West)", "~121.8"], ["kmsp1_gnd_n", "GND", "Ground (North)", "~121.8"], ["kmsp1_app_n_low", "APP", "Approach (North Low)", "~118.72"], ["kmsp1_app_ne", "APP", "Approach (North/East)", "~118.72"], ["kmsp1_dep_ne", "DEP", "Departure (North/East)", "~132.975"]], "APP 118.72 | ATIS 120.8 | DEL 133.2 | DEP 132.975 | GND 121.8 | TWR 123.675"],
+  ["KDTW", "Detroit Wayne County", "Detroit", 42.2138, -83.3538, [["kdtw_twr", "TWR", "Tower", "~118.4"], ["kdtw_twr_135000", "TWR", "Tower (Rwy 4L/22R)", "135"], ["kdtw_gnd", "GND", "Ground", "~119.25"], ["kdtw_gnd_119450", "GND", "Ground (NE)", "119.45"], ["kdtw_app_126225", "APP", "Detroit Approach (Feeder East)", "126.225"], ["kdtw_app_124975", "APP", "Detroit Approach (Feeder West)", "124.975"], ["kdtw_dep_132025", "DEP", "Detroit Departure (East)", "132.025"]], "APP 118.575 | ATIS 133.675 | DEL 120.65 | DEP 118.575 | GND 119.25 | TWR 118.4"],
+  ["KPHL", "Philadelphia Intl", "Philadelphia", 39.8719, -75.2411, [["kphl_twr_east", "TWR", "Tower (East)", "~118.5"], ["kphl_twr_west", "TWR", "Tower (West)", "~118.5"], ["kphl_gnd1", "GND", "Ground 1", "~121.9"], ["kphl_gnd", "GND", "Ground (Both)", "~121.9"], ["kphl_final", "APP", "App (Final)", "~123.8"], ["kphl_app_119750", "APP", "App/Dep (South)", "119.75"], ["kphl_dep", "DEP", "Dep (N/S Dep)", "~119.75"]], "APP 123.8 | ATIS 133.4 | DEL 118.85 | DEP 119.75 | GND 121.9 | TWR 118.5"],
+  ["KLGA", "LaGuardia", "New York", 40.7772, -73.8726, [["klga_twr", "TWR", "Tower #1", "~118.7"], ["klga_118_twr", "TWR", "Tower #2", "~118.7"], ["klga_gnd", "GND", "Ground #1", "~121.7"], ["klga_118_gnd", "GND", "Ground #2", "~121.7"], ["klga_ny_app", "APP", "NY App (HAARP) #1", "~118/132.7"], ["klga_final2", "APP", "NY App (Final) #2", "~118/132.7"], ["klga_ny_dep", "DEP", "NY Dep", "~120.4"]], "APP 118 132.7 | ATIS 125.95 | DEL 121.875 | DEP 120.4 | GND 121.7 | TWR 118.7"],
+  ["KBWI", "Baltimore/Washington Intl Thurgood Marshall", "Baltimore", 39.1754, -76.6683, [["kbwi_es_twr", "TWR", "Tower", "~119.4"], ["kbwi_es_gnd", "GND", "Ground", "~121.9"], ["kbwi_es_final", "APP", "Potomac App (BWI Final)", "~119"], ["kmrb1_app_buffr", "APP", "Potomac App/Dep (BUFFR)", "~119"], ["kbwi_del", "DEL", "Clearance Delivery", "~118.05"], ["kbwi_es_zdc_swann", "CTR", "ZDC Washington Center (SWANN Sector)", ""]], "APP 119 | DEL 118.05 | DEP 126.75 | GND 121.9 | TWR 119.4"],
+  ["KSLC", "Salt Lake City Intl", "Salt Lake City", 40.7889, -111.9799, [["kslc_twr17_118300", "TWR", "Tower (Rwy 17/35)", "118.3"], ["kslc_twr16l_119050", "TWR", "Tower (Rwy 16L/34R)", "119.05"], ["kslc_gnd_e_121900", "GND", "Ground (East)", "121.9"], ["kslc_gnd_w_123775", "GND", "Ground (West)", "123.775"], ["kslc_del_127300", "DEL", "Clearance Delivery", "127.3"], ["kslc_atis_124750", "ATIS", "ATIS", "124.75"], ["kslc_zlc03_119950", "CTR", "ZLC Sector 03", "119.95"]], "A/D 121.1 | ATIS 124.75 | DEL 127.3 | GND 121.9 | TWR 118.3"],
+  ["KSAN", "San Diego Intl", "San Diego", 32.7336, -117.19, [["ksan1_twr", "TWR", "Tower #1", "~118.3"], ["ksan1_all", "TWR", "Ramp/Del/Gnd/Twr", "~118.3"], ["ksan1_gnd", "GND", "Ground #1", "~123.9"], ["ksan_app_nw", "APP", "SOCAL App/Dep (NW)", "~119.6/124.35"], ["ksan_app_east", "APP", "SOCAL App/Dep (East)", "~119.6/124.35"], ["ksan_dep_125150", "DEP", "SOCAL Dep (South Bay)", "125.15"], ["ksan1_del", "DEL", "Clearance Delivery", "~125.9"]], "A/D 119.6 124.35 | ATIS 134.8 | DEL 125.9 | GND 123.9 | TWR 118.3"],
+  ["KIAD", "Washington Dulles Intl", "Dulles", 38.9445, -77.4558, [["kiad1_twr_1c19c_120250", "TWR", "Tower (1C/19C)", "120.25"], ["kiad1_twr_1r19l_120100", "TWR", "Tower (1R/19L)", "120.1"], ["kiad1_gnd_east_121900", "GND", "Ground (East)", "121.9"], ["kiad1_gnd_ctr_132450", "GND", "Ground (Center 1C/19C)", "132.45"], ["kmrb1_kiad_n_arr", "APP", "App (North Arr Hi)", "~120.45"], ["kiad1_app_buffr_133850", "APP", "Potomac Approach (BUFFR)", "133.85"], ["kiad1_dep_n_asper_125050", "DEP", "Potomac Departure (North)", "125.05"]], "APP 120.45 | ATIS 134.85 | DEL 135.7 | DEP 125.05 | GND 121.9 | TWR 120.1"],
+  ["KDCA", "Ronald Reagan Washington National", "Washington", 38.8521, -77.0377, [["kdca1_twr", "TWR", "Tower", "~119.1/134.35"], ["kdca", "TWR", "Tower/Approach", "~119.1/134.35"], ["kdca1_gnd", "GND", "Ground", "~121.7"], ["kmrb1_app_luray", "APP", "Potomac App (LURAY)", "~119.85/124.2"], ["kdca1_dep_121050", "APP", "Potomac App/Dep (FLUKY)", "121.05"], ["kdca1_dep", "DEP", "Potomac Departure", "~118.95/125.65"]], "APP 119.85 124.2 | DEP 118.95 125.65 | GND 121.7 | TWR 119.1 134.35"],
+  ["KMDW", "Chicago Midway Intl", "Chicago", 41.786, -87.7524, [["kmdw_1", "TWR", "Tower #1", "~118.7"], ["kmdw1_gnd_twr", "TWR", "Ground/Tower", "~118.7"], ["kmdw_3", "GND", "Ground #1", "~121.65"], ["kmdw1_gnd", "GND", "Ground #2", "~121.65"], ["kmdw_2", "APP", "Chicago Approach (MDW/LOT)", "~118.4"], ["kmdw1_app_128200", "APP", "Chicago App/Dep (S. Sat Sector 1)", "128.2"], ["kmdw_4", "DEL", "Clearance/Metering", "~121.85"]], "A/D 118.4 | ATIS 132.75 | DEL 121.85 | GND 121.65 | TWR 118.7"],
+  ["KTPA", "Tampa Intl", "Tampa", 27.9755, -82.5332, [["ktpa2", "TWR", "Tower #1", "~119.5"]], "A/D 118.15 | ATIS 126.45 | DEL 133.6 | GND 121.7 | TWR 119.5"],
+  ["KPDX", "Portland Intl", "Portland", 45.5887, -122.598, [["kpdx3_twr", "TWR", "Tower (Both)", "~118.7"], ["kpdx3_twr_123775", "TWR", "Tower (Primary)", "123.775"], ["kpdx3_gnd", "GND", "Ground", "~121.9"], ["kpdx3_del_gnd", "GND", "Del/Gnd", "~121.9"], ["kpdx_app_124350", "APP", "App/Dep (North)", "124.35"], ["kpdx_app_final", "APP", "Approach (Final) #1", "~118.1/129.92"], ["kpdx3_del", "DEL", "Clearance Delivery", "~120.125"]], "APP 118.1 129.92 | ATIS 120.625 | DEL 120.125 | DEP 118.1 | GND 121.9 | TWR 118.7"],
+  ["KAUS", "Austin Bergstrom Intl", "Austin", 30.1975, -97.662, [["kaus3_twr", "TWR", "Tower #1", "~121"], ["kaus3_twr_secondary", "TWR", "Tower (Secondary) #1", "~121"], ["kaus3_gnd", "GND", "Ground #1", "~121.7"], ["kaus3_gnd_secondary", "GND", "Ground (Secondary) #1", "~121.7"], ["kaus3_app_dep", "APP", "App/Dep #1", "~118.8"], ["kaus3_app_se", "APP", "App/Dep (SE)", "~118.8"], ["kaus3_del", "DEL", "Clearance Delivery #1", "~125.5"]], "A/D 118.8 | ATIS 124.4 | DEL 125.5 | GND 121.7 | TWR 121"],
+  ["KBNA", "Nashville Intl", "Nashville", 36.1245, -86.6782, [["kbna_gnd_twr", "TWR", "Ground/Tower", "~118.6"], ["kbna_app", "APP", "App/Dep", "~120.6"], ["kbna_app_east", "APP", "App/Dep (East)", "~120.6"]], "APP 120.6 | ATIS 135.1 | DEL 126.05 | DEP 118.4 | GND 121.9 | TWR 118.6"],
+  ["KSTL", "St. Louis Lambert Intl", "St Louis", 38.7487, -90.37, [["kstl2", "TWR", "Del/Gnd/Twr", "~118.5/120.05"], ["kstl_app", "APP", "Approach", "~120.05/121.025"]], "APP 120.05 121.025 123.7 | ATIS 125.025 | DEL 119.5 | DEP 119.15 128.1 | GND 118.925 121.65 121.9 | TWR 118.5 120.05 132.475"],
+  ["KOAK", "Oakland San Francisco Bay", "Oakland", 37.7201, -122.2212, [["koak", "TWR", "Del/Gnd/Twr", "~118.3"], ["koak_app", "APP", "NORCAL Approach (KOAK)", "~125.35"], ["koak_dep", "DEP", "NORCAL Departure (KSFO/KOAK)", "~120.9"]], "APP 125.35 | ATIS 133.775 | DEL 121.1 | DEP 120.9 | GND 121.75 | TWR 118.3"],
+  ["KSJC", "Mineta San Jose Intl", "San Jose", 37.3625, -121.9292, [["ksjc6_twr", "TWR", "Tower #1", "~124"], ["ksjc_twr2", "TWR", "Tower #2", "~124"], ["ksjc6_gnd", "GND", "Ground", "~121.7"], ["ksjc_app2", "APP", "NORCAL Approach #2", "~120.1"]], "APP 120.1 | ATIS 126.95 | DEL 118 | DEP 121.3 | GND 121.7 | TWR 124"],
+  ["KRDU", "Raleigh-Durham Intl", "Raleigh/Durham", 35.8787, -78.7873, [["krdu_twr", "TWR", "Tower", "~119.3"], ["krdu_app", "APP", "Approach", "~124.8"], ["krdu_app2", "APP", "Approach/Departure", "~124.8"], ["krdu_dep", "DEP", "Departure", "~125.3"], ["zdc38_dk", "CTR", "ZDC Sector 38 (Tar River Hi)", ""]], "APP 124.8 | ATIS 123.8 | DEL 120.1 | DEP 125.3 | GND 121.7 | TWR 119.3"],
+  ["CYYZ", "Toronto Pearson Intl", "Toronto", 43.6759, -79.6294, [["cyyz1_twr_north", "TWR", "Tower (North)", "~118.35/118.7"], ["cyyz1_twr_south", "TWR", "Tower (South)", "~118.35/118.7"], ["cyyz1_gnd_north", "GND", "Ground (North)", "~119.1/121.65"], ["cyyz1_gnd_south", "GND", "Ground (South)", "~119.1/121.65"], ["cyyz1_app_132800", "APP", "Arrival 1", "132.8"], ["cyyz1_app_124475", "APP", "Arrival 2", "124.475"], ["cyyz1_dep_128800", "DEP", "Departure 1", "128.8"]], "DEL 121.3 | DEP 127.575 128.8 | GND 119.1 121.65 121.9 | TWR 118.35 118.7"],
+  ["CYVR", "Vancouver Intl", "Vancouver", 49.1939, -123.184, [["cyvr1_twr", "TWR", "Tower", "~118.7"], ["cyvr1_gnd_twr", "TWR", "Del/Gnd/Twr #1", "~118.7"], ["cyvr1_gnd", "GND", "Del/Gnd", "~121.7"], ["cyvr1_app", "APP", "App/Dep #1", "~128.6"], ["cyvr2", "APP", "App/Dep #2", "~128.6"], ["cyvr1_ctr", "CTR", "CZVR Vancouver ACC", ""]], "APP 128.6 | ATIS 124.6 | DEL 121.4 | DEP 126.125 | GND 121.7 | TWR 118.7"],
+  ["EHAM", "Amsterdam Schiphol", "Amsterdam", 52.3086, 4.7639, [["eham_twr_0624", "TWR", "Tower (Rwy 06/24)", "~118.105/118.28"], ["eham_twr_18c36c", "TWR", "Tower (Rwy 18C/36C)", "~118.105/118.28"], ["eham_gnd_18r", "GND", "Ground (Rwy 18R)", "~121.56/121.59"], ["eham_gnd_0624", "GND", "Ground (Rwy 06/24)", "~121.56/121.59"], ["eham_arr_118405", "APP", "Arrival", "118.405"], ["eham_arr_126680", "APP", "Arrival", "126.68"], ["eham_del", "DEL", "Clearance Delivery", "~121.655/121.98"]], "APP 119.055 121.205 | ATIS 122.2 132.98 | DEL 121.655 121.98 | DEP 119.055 121.205 | GND 121.56 121.59 121.705 | TWR 118.105 118.28 119.23"],
+  ["RJTT", "Tokyo Haneda Intl", "Tokyo", 35.5497, 139.787, [["rjtt_twr", "TWR", "Twr/TCA", "~118.1/118.575"], ["rjtt_twr_tca", "TWR", "Del/Twr/TCA/Gnd", "~118.1/118.575"], ["rjtt_gnd", "GND", "Del/Ground", "~118.225/121.625"], ["rjtt_app_dep", "APP", "App/Dep", "~119.1"], ["rjtt_app", "APP", "Approach", "~119.1"], ["rjtt_dep", "DEP", "Departure", "~120.8/126"], ["rjtt_atis", "ATIS", "ATIS", "~128.8"]], "APP 119.1 | ATIS 128.8 | DEP 120.8 126 | GND 118.225 121.625 121.7 | TWR 118.1 118.575 118.725"],
+  ["YSSY", "Sydney Kingsford Smith Intl", "Sydney (Mascot)", -33.9461, 151.177, [["yssy1_twr", "TWR", "Tower (Both)", "~120.5"], ["yssy1_twr2", "TWR", "Tower (Rwy 16L/34R)", "~120.5"], ["yssy1_del_gnd", "GND", "Del/Gnd", "~121.7"], ["yssy1_app_s", "APP", "Approach (South)", "~135.1"], ["yssy1_app_n", "APP", "Approach (North/East)", "~135.1"], ["yssy1_dep_ne", "DEP", "Departure (North/East)", "~123"], ["yssy1_dep_s", "DEP", "Departure (South/West)", "~123"]], "APP 135.1 | DEL 133.8 | DEP 123 | GND 121.7 | TWR 120.5"],
+];
+
+const $ = id => document.getElementById(id);
+const audio = $('audio');
+const S = { pos: null, posSrc: '', apt: null, feed: 0, userPicked: false, playing: false, failed: new Set(), timer: null, t0: 0 };
+
+// ---- helpers --------------------------------------------------------------
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const rad = d => d * Math.PI / 180;
+function distNm(a, b) {
+  const dLat = rad(b[0] - a[0]), dLon = rad(b[1] - a[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLon / 2) ** 2;
+  return 3440.065 * 2 * Math.asin(Math.sqrt(h));
+}
+function bearing(a, b) {
+  const y = Math.sin(rad(b[1] - a[1])) * Math.cos(rad(b[0]));
+  const x = Math.cos(rad(a[0])) * Math.sin(rad(b[0])) - Math.sin(rad(a[0])) * Math.cos(rad(b[0])) * Math.cos(rad(b[1] - a[1]));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+const fmtPos = p => `${Math.abs(p[0]).toFixed(2)}${p[0] >= 0 ? 'N' : 'S'} ${Math.abs(p[1]).toFixed(2)}${p[1] >= 0 ? 'E' : 'W'}`;
+const brg3 = (p, a) => String(Math.round(bearing(p, [a[3], a[4]])) % 360).padStart(3, '0');
+const pad = n => String(n).padStart(2, '0');
+const streamUrl = mount => `https://d.liveatc.net/${mount}`;   // LiveATC redirector -> right server
+const liveatcPage = (mount, icao) => `https://www.liveatc.net/hlisten.php?mount=${mount}&icao=${icao.toLowerCase()}`;
+
+// ---- location -------------------------------------------------------------
+function setPos(lat, lon, src) {
+  // GPS always wins; IP/REF only fill in when we have nothing better
+  if (S.posSrc === 'GPS' && src !== 'GPS') return;
+  S.pos = [lat, lon]; S.posSrc = src;
+  $('pos').textContent = fmtPos(S.pos);
+  $('posSrc').textContent = `(${src})`;
+  renderList();
+  if (!S.userPicked) selectAirport(sorted()[0][0], false);
+}
+function tryGps(manual) {
+  if (!navigator.geolocation) { if (manual) note('Device location not available here.'); return; }
+  if (manual) $('posSrc').textContent = '(asking GPS...)';
+  navigator.geolocation.getCurrentPosition(
+    p => { if (manual) S.userPicked = false; setPos(p.coords.latitude, p.coords.longitude, 'GPS'); },
+    e => { if (manual) note('Device location blocked (' + (e.message || 'denied') + '). Using ' + (S.posSrc || 'no') + ' position; type an ICAO to pick.');
+           if (!S.pos) $('posSrc').textContent = '(no location)'; },
+    { timeout: 8000, maximumAge: 600000 });
+}
+async function tryIp() {
+  const apis = [
+    ['https://get.geojs.io/v1/ip/geo.json', j => [+j.latitude, +j.longitude]],
+    ['https://ipapi.co/json/', j => [+j.latitude, +j.longitude]],
+  ];
+  for (const [url, pick] of apis) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      const [lat, lon] = pick(await r.json());
+      if (isFinite(lat) && isFinite(lon) && (lat || lon)) return setPos(lat, lon, 'IP');
+    } catch (e) { /* try next */ }
+  }
+  if (!S.pos) $('posSrc').textContent = '(no location: type an ICAO)';
+}
+
+// ---- list -----------------------------------------------------------------
+function sorted() {
+  if (!S.pos) return AIRPORTS.slice();
+  return AIRPORTS.slice().sort((a, b) => distNm(S.pos, [a[3], a[4]]) - distNm(S.pos, [b[3], b[4]]));
+}
+function matches(a, q) {
+  return !q || a[0].includes(q) || a[0].slice(1) === q || a[1].toUpperCase().includes(q) || a[2].toUpperCase().includes(q);
+}
+function renderList() {
+  const q = $('q').value.trim().toUpperCase();
+  $('list').innerHTML = sorted().filter(a => matches(a, q)).map(a => {
+    const d = S.pos ? distNm(S.pos, [a[3], a[4]]) : null;
+    const nm = d == null ? '--' : d < 100 ? d.toFixed(1) : Math.round(d);
+    const brg = S.pos ? brg3(S.pos, a) : '--';
+    return `<tr data-icao="${a[0]}" class="${S.apt && S.apt[0] === a[0] ? 'sel' : ''}">
+      <td>${a[0]}</td><td class="ell" title="${esc(a[1])}">${esc(a[1])} <span class="muted">${esc(a[2])}</span></td>
+      <td class="r">${nm}</td><td class="r hide-sm">${brg}</td><td class="r">${a[5].length}</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="muted">no match in built-in list</td></tr>`;
+}
+
+// ---- selection ------------------------------------------------------------
+function selectAirport(icao, byUser) {
+  const a = AIRPORTS.find(x => x[0] === icao);
+  if (!a) return;
+  if (byUser) S.userPicked = true;
+  const changed = !S.apt || S.apt[0] !== icao;
+  S.apt = a;
+  if (changed) { S.feed = 0; S.failed.clear(); loadMetar(a[0]); }
+  renderList(); renderFeeds(); renderNow();
+  if (changed && S.playing) play();
+}
+function selectFeed(i) {
+  S.feed = i;
+  renderFeeds(); renderNow();
+  if (S.playing) play();
+}
+function renderFeeds() {
+  const a = S.apt;
+  $('feeds').innerHTML = a[5].map((f, i) => {
+    const approx = f[3].startsWith('~');
+    return `<tr data-i="${i}" class="${i === S.feed ? 'sel' : ''} ${S.failed.has(i) ? 'bad' : ''}">
+      <td>${f[1]}</td><td class="ell" title="${esc(f[2])} [${f[0]}]">${esc(f[2])}</td>
+      <td class="r ${approx ? 'approx' : ''}">${esc(f[3] || '--')}</td></tr>`;
+  }).join('');
+  $('freqs').innerHTML = a[6] ? 'Published: ' + a[6].split(' | ').map(s => {
+    const [k, ...v] = s.split(' '); return `${k} <b>${v.join(' ')}</b>`; }).join(' &middot; ') : '';
+}
+function renderNow() {
+  const a = S.apt, f = a[5][S.feed];
+  $('npIcao').textContent = a[0];
+  let where = a[1];
+  if (S.pos) where += ` · ${distNm(S.pos, [a[3], a[4]]).toFixed(0)} nm @ ${brg3(S.pos, a)}°`;
+  $('npName').textContent = where;
+  $('npFeed').textContent = `${f[1]} · ${f[2]}${f[3] ? ' · ' + f[3] + ' MHz' : ''}`;
+  $('big').disabled = false;
+}
+
+// ---- audio ----------------------------------------------------------------
+let watchdog = null;
+function setState(cls, text) { const el = $('state'); el.className = 'state ' + cls; el.textContent = text; }
+function note(html, isErr) { const m = $('msg'); m.className = 'msg' + (isErr ? ' err' : ''); m.innerHTML = html; }
+function bigLabel(playing) { $('big').innerHTML = playing ? '&#9632; Stop' : '&#9654; Play'; }
+
+function play() {
+  const a = S.apt, f = a[5][S.feed];
+  S.playing = true; bigLabel(true);
+  setState('conn', 'Connecting…');
+  note(`Tuning ${f[0]}…`);
+  clearTimeout(watchdog);
+  audio.src = streamUrl(f[0]) + '?nocache=' + Date.now();
+  audio.play().catch(err => { if (err.name !== 'AbortError') fail(err.name === 'NotAllowedError' ? 'Browser blocked playback. Tap PLAY again.' : 'Stream could not start.'); });
+  watchdog = setTimeout(() => { if (audio.paused || audio.readyState < 3) fail('No audio after 15 s. Feed is probably offline.'); }, 15000);
+}
+function stop(keepMsg) {
+  S.playing = false; bigLabel(false);
+  clearTimeout(watchdog); clearInterval(S.timer); S.timer = null; S.t0 = 0; $('timer').textContent = '';
+  audio.pause(); audio.removeAttribute('src'); audio.load();   // drop the connection
+  setState('idle', 'Stopped');
+  if (!keepMsg) note('');
+}
+function fail(why) {
+  if (!S.playing) return;
+  S.failed.add(S.feed);
+  stop(true);
+  setState('err', 'No signal');
+  const feeds = S.apt[5];
+  let next = -1;
+  for (let k = 1; k <= feeds.length; k++) { const j = (S.feed + k) % feeds.length; if (!S.failed.has(j)) { next = j; break; } }
+  const link = `<a href="${liveatcPage(feeds[S.feed][0], S.apt[0])}" target="_blank" rel="noopener">open on LiveATC</a>`;
+  note(`${esc(why)} ` + (next >= 0
+    ? `Try next: <b>${feeds[next][1]} ${esc(feeds[next][2])}</b><button id="tryNext" data-i="${next}">Try next &#9654;</button>`
+    : `All feeds here failed; pick another airport or ${link}.`), true);
+  renderFeeds();
+}
+audio.addEventListener('playing', () => {
+  clearTimeout(watchdog);
+  setState('live', 'Live');
+  note(`${S.apt[5][S.feed][0]} · via LiveATC`);
+  S.failed.delete(S.feed); renderFeeds();
+  if (!S.timer) { S.t0 = Date.now();
+    S.timer = setInterval(() => { const s = (Date.now() - S.t0) / 1000 | 0; $('timer').textContent = `${pad(s / 3600 | 0)}:${pad((s / 60 | 0) % 60)}:${pad(s % 60)}`; }, 1000); }
+});
+audio.addEventListener('waiting', () => { if (S.playing) setState('conn', 'Buffering…'); });
+audio.addEventListener('error', () => { if (S.playing && audio.getAttribute('src')) fail('Stream error: feed offline or blocked.'); });
+audio.addEventListener('ended', () => { if (S.playing) fail('Stream ended.'); });
+$('big').onclick = () => S.playing ? stop() : play();
+
+// ---- METAR ----------------------------------------------------------------
+async function getMetar(icao) {
+  // 1) aviationweather.gov (no CORS headers today; kept in case that changes)
+  try {
+    const r = await fetch(`https://aviationweather.gov/api/data/metar?ids=${icao}&format=json`);
+    const j = await r.json();
+    if (j[0] && j[0].rawOb) return { raw: j[0].rawOb };
+  } catch (e) { }
+  // 2) api.weather.gov (CORS ok, US + Canada). Its raw METAR text lags 1-2 h and the 5-min
+  //    ASOS obs carry no raw text, so: raw = last METAR, decoded values = newest observation.
+  try {
+    const r = await fetch(`https://api.weather.gov/stations/${icao}/observations?limit=40`, { headers: { Accept: 'application/geo+json' } });
+    const feats = ((await r.json()).features || []).map(f => f.properties);
+    const withRaw = feats.find(p => p.rawMessage);
+    if (feats.length) return { raw: withRaw && withRaw.rawMessage, obs: feats[0] };
+  } catch (e) { }
+  return null;
+}
+function flightCat(vis, ceil) {
+  const v = vis == null ? 99 : vis, c = ceil == null ? 99999 : ceil;
+  return (c < 500 || v < 1) ? 'LIFR' : (c < 1000 || v < 3) ? 'IFR' : (c <= 3000 || v <= 5) ? 'MVFR' : 'VFR';
+}
+function windTxt(dir, spd, g) {
+  return spd === 0 ? 'calm' : `${dir == null || dir === 'VRB' ? 'variable' : String(dir).padStart(3, '0') + '°'} @ ${spd} kt${g ? ' G' + g : ''}`;
+}
+// Decode a NWS api.weather.gov observation (SI units) into the same shape as decodeMetar()
+function decodeObs(p) {
+  const val = k => p[k] && p[k].value != null ? p[k].value : null;
+  const d = { time: Date.parse(p.timestamp) };
+  const kt = v => v == null ? null : Math.round(v / 1.852);
+  if (val('windSpeed') != null) d.wind = windTxt(val('windDirection'), kt(val('windSpeed')), kt(val('windGust')));
+  if (val('visibility') != null) { d.vis = val('visibility') / 1609.34; d.visTxt = (d.vis >= 9.95 ? '10+' : +d.vis.toFixed(2)) + ' sm'; }
+  const layers = (p.cloudLayers || []).filter(l => l.base && l.base.value != null && ['FEW', 'SCT', 'BKN', 'OVC', 'VV'].includes(l.amount)).map(l => [l.amount, Math.round(l.base.value * 3.28084 / 100) * 100]);
+  if ((p.cloudLayers || []).length) {             // only report sky if the obs has it
+    const ceil = layers.find(l => ['BKN', 'OVC', 'VV'].includes(l[0]));
+    d.ceil = ceil ? ceil[1] : null;
+    d.sky = layers.length ? layers.map(l => l[0] + String(l[1] / 100).padStart(3, '0')).join(' ') : p.cloudLayers[0].amount;
+  }
+  if (val('temperature') != null) d.temp = `${Math.round(val('temperature'))}°C / ${val('dewpoint') != null ? Math.round(val('dewpoint')) + '°C' : '--'}`;
+  if (val('barometricPressure') != null) d.alt = `${(val('barometricPressure') / 3386.39).toFixed(2)} inHg`;
+  d.cat = flightCat(d.vis, d.ceil);
+  return d;
+}
+function parseFrac(s) { return s.split(' ').reduce((t, p) => t + (p.includes('/') ? p.split('/')[0] / p.split('/')[1] : +p), 0); }
+function decodeMetar(raw) {
+  const body = raw.split(' RMK')[0];
+  const d = {};
+  let m;
+  if ((m = body.match(/\b(\d{2})(\d{2})(\d{2})Z\b/))) {
+    const now = new Date();
+    let t = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), +m[1], +m[2], +m[3]);
+    if (t > now.getTime() + 3600e3) t = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, +m[1], +m[2], +m[3]);
+    d.time = t;
+  }
+  if ((m = body.match(/\b(\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?(KT|MPS)\b/))) {
+    const k = m[4] === 'MPS' ? 1.944 : 1;
+    const spd = Math.round(m[2] * k), g = m[3] ? Math.round(m[3] * k) : 0;
+    d.wind = windTxt(m[1], spd, g);
+  }
+  if (/\bCAVOK\b/.test(body)) { d.vis = 10; d.visTxt = 'CAVOK'; }
+  else if ((m = body.match(/\b([MP])?((?:\d+ )?\d+(?:\/\d+)?)SM\b/))) { d.vis = parseFrac(m[2]); d.visTxt = (m[1] === 'P' ? '>' : m[1] === 'M' ? '<' : '') + m[2] + ' sm'; }
+  else if ((m = body.match(/(?:KT|MPS)\s+(?:\d{3}V\d{3}\s+)?(\d{4})\b/))) { d.vis = +m[1] / 1609.34; d.visTxt = m[1] === '9999' ? '10+ km' : `${m[1]} m (${d.vis.toFixed(1)} sm)`; }
+  const layers = [...body.matchAll(/\b(FEW|SCT|BKN|OVC|VV)(\d{3})/g)].map(x => [x[1], +x[2] * 100]);
+  const ceil = layers.find(l => ['BKN', 'OVC', 'VV'].includes(l[0]));
+  d.ceil = ceil ? ceil[1] : null;
+  d.sky = layers.length ? layers.map(l => l[0] + String(l[1] / 100).padStart(3, '0')).join(' ') : (body.match(/\b(CLR|SKC|NSC|NCD|CAVOK)\b/) || ['clear'])[0];
+  if ((m = body.match(/\s(M?\d{2})\/(M?\d{2})?\s/))) { const c = s => s && +s.replace('M', '-'); d.temp = `${c(m[1])}°C / ${m[2] ? c(m[2]) + '°C' : '--'}`; }
+  if ((m = body.match(/\bA(\d{4})\b/))) d.alt = `${(m[1] / 100).toFixed(2)} inHg`;
+  else if ((m = body.match(/\bQ(\d{4})\b/))) d.alt = `${+m[1]} hPa`;
+  d.cat = flightCat(d.vis, d.ceil);
+  return d;
+}
+let metarFor = null;
+async function loadMetar(icao) {
+  metarFor = icao;
+  const link = `<a href="https://aviationweather.gov/data/metar/?id=${icao}&hours=0&decoded=yes" target="_blank" rel="noopener">aviationweather.gov</a>`;
+  $('metar').innerHTML = '<span class="muted">Fetching METAR…</span>';
+  const m = await getMetar(icao);
+  if (metarFor !== icao) return;                     // user moved on
+  if (!m || (!m.raw && !m.obs)) { $('metar').innerHTML = `No METAR reachable from this page. See ${link}.`; return; }
+  const rawD = m.raw ? decodeMetar(m.raw) : null;
+  // prefer the fresher source for the decoded block
+  const useObs = m.obs && (!rawD || !rawD.time || decodeObs(m.obs).time - rawD.time > 20 * 60000);
+  // decoded values: newest obs, with any missing fields filled from the last METAR
+  let d = rawD;
+  if (useObs) {
+    d = Object.assign({}, rawD || {}, ...Object.entries(decodeObs(m.obs)).filter(([, v]) => v !== undefined).map(([k, v]) => ({ [k]: v })));
+    d.cat = flightCat(d.vis, d.ceil);
+  }
+  const ago = d.time ? Math.max(0, Math.round((Date.now() - d.time) / 60000)) : null;
+  const when = d.time ? new Date(d.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  $('metar').innerHTML = `<div class="kv">
+      <span>Category</span><span><span class="cat ${d.cat}">${d.cat}</span></span>
+      <span>Wind</span><span>${d.wind || '--'}</span>
+      <span>Visibility</span><span>${d.visTxt || '--'}</span>
+      <span>Ceiling</span><span>${d.ceil != null ? d.ceil.toLocaleString() + ' ft' : 'none'} <span class="muted">${esc(d.sky || '')}</span></span>
+      <span>Temp / dew</span><span>${d.temp || '--'}</span>
+      <span>Altimeter</span><span>${d.alt || '--'}</span>
+      <span>Observed</span><span>${ago != null ? `${ago} min ago <span class="muted">(${when})</span>` : '--'}</span>
+    </div>
+    ${m.raw ? `<details><summary class="muted">Raw METAR</summary><div class="raw">${esc(m.raw)}</div></details>` : ''}
+    <div class="muted" style="margin-top:6px">Full report: ${link}</div>`;
+}
+setInterval(() => S.apt && loadMetar(S.apt[0]), 5 * 60 * 1000);
+
+// ---- wiring ---------------------------------------------------------------
+$('list').onclick = e => { const tr = e.target.closest('tr[data-icao]'); if (tr) selectAirport(tr.dataset.icao, true); };
+$('feeds').onclick = e => { const tr = e.target.closest('tr[data-i]'); if (tr) selectFeed(+tr.dataset.i); };
+$('msg').onclick = e => { if (e.target.id === 'tryNext') { selectFeed(+e.target.dataset.i); play(); } };
+$('q').oninput = renderList;
+$('q').onkeydown = e => {
+  if (e.key !== 'Enter') return;
+  const q = $('q').value.trim().toUpperCase();
+  const hit = sorted().find(a => a[0] === q || a[0].slice(1) === q) || sorted().find(a => matches(a, q));
+  if (!hit) return note(`${esc(q)} is not in the built-in list.`, true);
+  if (!S.pos) setPos(hit[3], hit[4], 'REF ' + hit[0]);   // no location: use typed airport as reference
+  selectAirport(hit[0], true);
+  $('q').value = ''; renderList();
+};
+$('locate').onclick = () => tryGps(true);
+document.addEventListener('keydown', e => { if (e.code === 'Space' && e.target.tagName !== 'INPUT' && S.apt) { e.preventDefault(); $('big').click(); } });
+
+// clock
+const tick = () => { $('clock').textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }); };
+tick(); setInterval(tick, 10000);
+
+renderList();
+tryIp();
+tryGps(false);
+</script>
+</body>
+</html>
